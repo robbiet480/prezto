@@ -9,3 +9,6 @@
 if [[ "$SHLVL" -eq 1 && ! -o LOGIN && -s "${ZDOTDIR:-$HOME}/.zprofile" ]]; then
   source "${ZDOTDIR:-$HOME}/.zprofile"
 fi
+
+export GOPATH=/Users/robbiet480/gocode
+export PATH="$PATH:/usr/local/heroku/bin:$HOME/.rvm/bin:$GOPATH/bin:/Applications/Postgres.app/Contents/Versions/9.4/bin/"
