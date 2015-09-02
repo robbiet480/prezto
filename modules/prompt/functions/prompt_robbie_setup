@@ -1,0 +1,190 @@
+#
+# A theme based on Steve Losh's Extravagant Prompt with vcs_info integration.
+#
+# Authors:
+#   Marcello Seri <mseri@mseri.me>
+#   Steve Losh <steve@stevelosh.com>
+#   Bart Trojanowski <bart@jukie.net>
+#   Brian Carper <brian@carper.ca>
+#   Robbie Trencheny <me@robbiet.us>
+#   Sorin Ionescu <sorin.ionescu@gmail.com>
+#
+
+pmodload 'helper'
+
+function prompt_robbie_pwd {
+  local pwd="${PWD/#$HOME/~}"
+
+  if [[ "$pwd" == (#m)[/~] ]]; then
+    _prompt_robbie_pwd="$MATCH"
+    unset MATCH
+  else
+    _prompt_robbie_pwd="${${${${(@j:/:M)${(@s:/:)pwd}##.#?}:h}%/}//\%/%%}/${${pwd:t}//\%/%%}"
+  fi
+}
+
+function prompt_robbie_git_info {
+  if (( _prompt_robbie_precmd_async_pid > 0 )); then
+    # Append Git status.
+    if [[ -s "$_prompt_robbie_precmd_async_data" ]]; then
+      alias typeset='typeset -g'
+      source "$_prompt_robbie_precmd_async_data"
+      RPROMPT+='${git_info:+${(e)git_info[status]}}'
+      unalias typeset
+    fi
+
+    # Reset PID.
+    _prompt_robbie_precmd_async_pid=0
+
+    # Redisplay prompt.
+    zle && zle reset-prompt
+  fi
+}
+
+function prompt_robbie_precmd_async {
+  # Get Git repository information.
+  if (( $+functions[git-info] )); then
+    git-info
+    typeset -p git_info >! "$_prompt_robbie_precmd_async_data"
+  fi
+
+  # Signal completion to parent process.
+  kill -WINCH $$
+}
+
+function calc_elapsed_time {
+  if [[ $timer_result -ge 3600 ]]; then
+    let "timer_hours = $timer_result / 3600"
+    let "remainder = $timer_result % 3600"
+    let "timer_minutes = $remainder / 60"
+    let "timer_seconds = $remainder % 60"
+    print -P "%B%F{red}>>> $CMD_NAME elapsed time: ${timer_hours}h${timer_minutes}m${timer_seconds}s%b"
+  elif [[ $timer_result -ge 60 ]]; then
+    let "timer_minutes = $timer_result / 60"
+    let "timer_seconds = $timer_result % 60"
+    print -P "%B%F{yellow}>>> $CMD_NAME elapsed time: ${timer_minutes}m${timer_seconds}s%b"
+  # elif [[ $timer_result -gt 5 ]]; then
+  #   print -P "%B%F{green}>>> $CMD_NAME elapsed time: ${timer_result}s%b"
+  fi
+}
+
+function prompt_robbie_precmd {
+  setopt LOCAL_OPTIONS
+  unsetopt XTRACE KSH_ARRAYS
+
+  prompt_robbie_pwd
+
+  RPROMPT='%0(?.%F{green}✔%f.%F{red}✘%f)%F{red}${ruby_info[version]}${_prompt_robbie_colors[6]}${node_info[fork]}${node_info[version]}%f${_prompt_robbie_colors[7]}${python_info[virtualenv]}%f'
+
+  if (( $+functions[python-info] )); then
+    python-info
+  fi
+
+  # Get ruby information
+  if (( $+functions[ruby-info] )); then
+    ruby-info
+  fi
+
+  # Get node information
+  if ([[ -f "*.js" ]] || [[ -f ".nvmrc" ]]) && (( $+functions[node-info] )); then
+    node-info
+  fi
+
+  timer_result=$(($SECONDS-$start_time))
+  if [[ $timer_result -gt 10 ]]; then
+    calc_elapsed_time
+  fi
+  start_time=$SECONDS
+
+  # Kill the old process of slow commands if it is still running.
+  if (( _prompt_robbie_precmd_async_pid > 0 )); then
+    kill -KILL "$_prompt_robbie_precmd_async_pid" &>/dev/null
+  fi
+
+  # Compute slow commands in the background.
+  trap prompt_robbie_git_info WINCH
+  prompt_robbie_precmd_async &!
+  _prompt_robbie_precmd_async_pid=$!
+}
+
+function prompt_robbie_chpwd {
+  if ([[ ! -f "*.js" ]] || [[ ! -f ".nvmrc" ]]); then
+    unset node_info
+  fi
+}
+
+start_time=$SECONDS
+function prompt_robbie_preexec {
+  start_time=$SECONDS
+  CMD_NAME=$1
+}
+
+function prompt_robbie_setup {
+  setopt LOCAL_OPTIONS
+  unsetopt XTRACE KSH_ARRAYS
+  prompt_opts=(cr percent subst)
+  _prompt_robbie_precmd_async_pid=0
+  _prompt_robbie_precmd_async_data="${TMPPREFIX}-prompt_robbie_data"
+
+  # Load required functions.
+  autoload -Uz add-zsh-hook
+
+  # Add hooks
+  add-zsh-hook precmd prompt_robbie_precmd
+  add-zsh-hook preexec prompt_robbie_preexec
+  add-zsh-hook chpwd prompt_robbie_chpwd
+
+  # Use extended color pallete if available.
+  if [[ $TERM = *256color* || $TERM = *rxvt* ]]; then
+    _prompt_robbie_colors=(
+      "%F{81}"  # Turquoise
+      "%F{75}"  # Pastel Cyan
+      "%F{215}" # Light Orange
+      "%F{166}" # Orange - not used
+      "%F{119}" # Pastel Limegreen
+      "%F{106}" # Node.js green part of logo color approx.
+      "%F{221}" # Python yellow part of logo color approx.
+      "%F{61}" # Python blue part of logo color approx.
+    )
+  else
+    _prompt_robbie_colors=(
+      "%F{cyan}"
+      "%F{magenta}"
+      "%F{yellow}"
+      "%F{red}"
+      "%F{green}"
+    )
+  fi
+
+  zstyle ':prezto:module:git:info' verbose 'yes'
+  zstyle ':prezto:module:git:info:action' format ' %F{7}:%f%F{9}%s%f'
+  zstyle ':prezto:module:git:info:added' format ' %F{2}✚%f'
+  zstyle ':prezto:module:git:info:ahead' format ' %F{13}→%A%f'
+  zstyle ':prezto:module:git:info:behind' format ' %F{13}%B ←%R%f%b'
+  zstyle ':prezto:module:git:info:branch' format ' %F{2}%b%f'
+  zstyle ':prezto:module:git:info:commit' format ' %F{3}%.7c%f'
+  zstyle ':prezto:module:git:info:deleted' format ' %B%F{white}%d%f%b%F{200}D%f'
+  zstyle ':prezto:module:git:info:modified' format ' %B%F{white}%m%f%b%F{200}M%f'
+  zstyle ':prezto:module:git:info:position' format ' %F{13}%p%f'
+  zstyle ':prezto:module:git:info:renamed' format ' %B%F{white}%r%f%b%F{green}R%f'
+  zstyle ':prezto:module:git:info:remote' format ' %F{13}%R%f'
+  zstyle ':prezto:module:git:info:stashed' format ' %F{6}✭%f'
+  zstyle ':prezto:module:git:info:unmerged' format ' %F{3}═%f'
+  zstyle ':prezto:module:git:info:untracked' format ' %B%F{white}%uA%f%b'
+  zstyle ':prezto:module:git:info:dirty' format ' %B%F{white}%D%b%f%F{200}Dirty%f'
+  zstyle ':prezto:module:git:info:keys' format 'status' '%b%m%u%U%d%A'
+
+  # Set python-info parameters.
+  zstyle ':prezto:module:python:info:virtualenv' format " ${_prompt_robbie_colors[8]}(%f${_prompt_robbie_colors[7]}%v%f${_prompt_robbie_colors[8]})%f"
+  VIRTUAL_ENV_DISABLE_PROMPT=1
+
+  # Set node-info parameters.
+  zstyle ':prezto:module:node:info:fork' format ' %f'
+  zstyle ':prezto:module:node:info:version' format ' %v'
+
+  # Define prompts.
+  PROMPT='${_prompt_robbie_colors[5]}${_prompt_robbie_pwd}%f 👉  '
+  RPROMPT=''
+}
+
+prompt_robbie_setup "$@"
